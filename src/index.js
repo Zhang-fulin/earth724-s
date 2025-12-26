@@ -1,15 +1,112 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+import { createClient } from '@supabase/supabase-js';
+import OpenAI from 'openai';
 
 export default {
-	async fetch(request, env, ctx) {
-		return new Response('Hello World!');
-	},
+  // 1. 定时触发 (Cloudflare Cron Triggers)
+  async scheduled(event, env, ctx) {
+    console.log("定时任务启动...");
+    ctx.waitUntil(startWorkflow(env));
+  },
+
+  // 2. 网页访问触发 (方便测试)
+  async fetch(request, env, ctx) {
+    await startWorkflow(env);
+    return new Response("任务已触发！请在 Cloudflare 后台实时日志查看进度。");
+  }
 };
+
+async function startWorkflow(env) {
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_Secret_key);
+  const deepseek = new OpenAI({
+    baseURL: 'https://api.deepseek.com/v1',
+    apiKey: env.DEEPSEEK_API_KEY
+  });
+
+  try {
+    const res = await fetch('https://zhibo.sina.com.cn/api/zhibo/feed?zhibo_id=152&page_size=60');
+    const data = await res.json();
+    const newsList = data.result.data.feed.list;
+
+    // --- 优化 1: 批量查询 ID (只消耗 1 个子请求) ---
+    const allIds = newsList.map(item => item.id);
+    const { data: existingRecords } = await supabase
+      .from('earth724')
+      .select('id')
+      .in('id', allIds);
+
+    const existingIdSet = new Set(existingRecords?.map(r => r.id) || []);
+
+    // --- 准备批量写入的容器 ---
+    const pendingData = [];
+
+    for (const item of newsList) {
+      // 在内存中比对，不再请求数据库
+      if (existingIdSet.has(item.id)) continue;
+
+      // AI 提取地理位置 (注意：如果新消息太多，这里的 AI 请求仍可能触发限制)
+      const cleanText = item.rich_text.replace(/<[^>]+>/g, '');
+      const geo = await getGeoInfo(deepseek, cleanText);
+
+      pendingData.push({
+        id: item.id,
+        rich_text: item.rich_text,
+        docurl: item.docurl,
+        create_time: item.create_time,
+        address: geo.address,
+        latitude: geo.lat,
+        longitude: geo.lng
+      });
+      
+      console.log(`[解析完成] 待入库: ${geo.address}`);
+    }
+
+    // --- 优化 2: 批量写入 (只消耗 1 个子请求) ---
+    if (pendingData.length > 0) {
+      const { error } = await supabase
+        .from('earth724')
+        .insert(pendingData);
+
+      if (error) console.error(`[批量写入失败]`, error.message);
+      else console.log(`[成功] 批量入库完成，共 ${pendingData.length} 条新数据`);
+    } else {
+      console.log("没有新数据需要处理。");
+    }
+
+  } catch (err) {
+    console.error("Workflow 异常:", err.message);
+  }
+}
+
+async function getGeoInfo(ai, text) {
+  try {
+    const completion = await ai.chat.completions.create({
+		model: "deepseek-chat",
+		messages: [
+			{ role: "system", content: `你是一个专业的地理空间情报专家。你的任务是从新闻文本中提取最核心的发生地点，并转化为经纬度坐标。
+				规则如下：
+				1. **定位优先级**：具体建筑/街道 > 具体公司名称 > 城市 > 国家。
+				2. **多地关联处理**：如果涉及多国外交或冲突，请定位到“新闻主体机构”所在地或“事件第一发生现场”。
+				3. **坐标标准**：必须返回 WGS84 坐标系的经纬度(lat, lng)。
+				4. **语言要求**: address 字段请尽量保留原文中的地名表述，或翻译为清晰的中文。
+				5. **格式约束**：必须严格返回 JSON, 不得包含任何 Markdown 格式块或多余解释。
+
+				...
+				无法确定时，请按以下逻辑追溯：
+				1. 金融行情/合约：定位至该品种对应的“主要交易所”总部（如：国际铜/沪金 -> 上海；布伦特原油 -> 伦敦；美股 -> 纽约）。
+				2. 政策/政令：定位至发布该政策的最高行政机关所在地。
+				3. 企业动态：定位至该企业的全球或区域总部。
+
+				若根据上述逻辑仍完全无法推断（如：纯理论探讨），才返回 {"address": "未知", "lat": 0, "lng": 0}。` },
+
+			{ role: "user", 
+				content: `请分析这段新闻。先思考：谁在说话？在哪里说话？涉及什么具体地点？然后输出 JSON: \n${text}`
+			}
+		],
+		response_format: { type: 'json_object' },
+		temperature: 0.1
+    });
+    return JSON.parse(completion.choices[0].message.content);
+  } catch {
+    return { address: "未知", lat: 0, lng: 0 };
+  }
+}
