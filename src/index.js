@@ -50,7 +50,6 @@ async function startWorkflow(env) {
       pendingData.push({
         id: item.id,
         rich_text: item.rich_text,
-        docurl: item.docurl,
         create_time: item.create_time,
         address: geo.address,
         latitude: geo.lat,
