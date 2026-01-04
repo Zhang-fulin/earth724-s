@@ -102,7 +102,7 @@ async function getGeoInfo(ai, text) {
 			}
 		],
 		response_format: { type: 'json_object' },
-		temperature: 0.1
+		temperature: 1.0
     });
     return JSON.parse(completion.choices[0].message.content);
   } catch {
