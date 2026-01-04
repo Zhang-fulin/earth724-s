@@ -79,7 +79,7 @@ async function startWorkflow(env) {
 async function getGeoInfo(ai, text) {
   try {
     const completion = await ai.chat.completions.create({
-		model: "deepseek-chat",
+		model: "deepseek-reasoner",
 		messages: [
 			{ role: "system", content: `你是一个专业的地理空间情报专家。你的任务是从新闻文本中提取最核心的发生地点，并转化为经纬度坐标。
 				规则如下：
