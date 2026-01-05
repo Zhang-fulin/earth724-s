@@ -25,7 +25,7 @@ async function startWorkflow(env) {
   });
 
   try {
-    const res = await fetch('https://zhibo.sina.com.cn/api/zhibo/feed?zhibo_id=152&page_size=60');
+    const res = await fetch('https://zhibo.sina.com.cn/api/zhibo/feed?zhibo_id=152&page_size=10');
     const data = await res.json();
     const newsList = data.result.data.feed.list;
 
