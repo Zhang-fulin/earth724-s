@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 
+const modelename = 'deepseek-chat';
+
 export default {
   // 1. 定时触发 (Cloudflare Cron Triggers)
   async scheduled(event, env, ctx) {
@@ -17,13 +19,13 @@ export default {
 
 async function startWorkflow(env) {
   const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY);
-  const gemini = new OpenAI({
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-    apiKey: env.GEMINI_API_KEY
+  const model = new OpenAI({
+    baseURL: env.DEEPSEEK_API_URL,
+    apiKey: env.DEEPSEEK_API_KEY
   });
 
   try {
-    const res = await fetch('https://zhibo.sina.com.cn/api/zhibo/feed?zhibo_id=152&page_size=10');
+    const res = await fetch('https://zhibo.sina.com.cn/api/zhibo/feed?zhibo_id=152&page_size=60');
     const data = await res.json();
     const newsList = data.result.data.feed.list;
 
@@ -49,7 +51,7 @@ async function startWorkflow(env) {
       itemsToProcess.map(async (item) => {
         try {
           const cleanText = item.rich_text.replace(/<[^>]+>/g, '');
-          const geo = await getGeoInfo(gemini, cleanText);
+          const geo = await getGeoInfo(model, cleanText);
           
           return {
             id: item.id,
@@ -83,7 +85,7 @@ async function startWorkflow(env) {
 
 async function getGeoInfo(ai, text) {
   const completion = await ai.chat.completions.create({
-  model: "gemini-2.0-flash",
+  model: modelename,
   messages: [
     { role: "system", content: `你是一个专业的地理空间情报专家。你的任务是从新闻文本中提取最核心的发生地点，并转化为经纬度坐标。
       规则如下：
