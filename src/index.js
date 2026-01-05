@@ -16,14 +16,14 @@ export default {
 };
 
 async function startWorkflow(env) {
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_Secret_key);
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY);
   const gemini = new OpenAI({
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
     apiKey: env.GEMINI_API_KEY
   });
 
   try {
-    const res = await fetch('https://zhibo.sina.com.cn/api/zhibo/feed?zhibo_id=152&page_size=15');s
+    const res = await fetch('https://zhibo.sina.com.cn/api/zhibo/feed?zhibo_id=152&page_size=10');
     const data = await res.json();
     const newsList = data.result.data.feed.list;
 
